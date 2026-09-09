@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zalew Jeziorsko — Monitoring i Archiwum</title>
-    <script src="https://jsdelivr.net"></script>
+    <!-- Pobranie biblioteki Chart.js z oficjalnego serwera CDN -->
+    <script src="https://jsdelivr.net" defer></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
         .container { max-width: 1000px; margin: 0 auto; }
@@ -26,9 +27,9 @@
         <p>Prywatne archiwum poziomu wody pobierane automatycznie z niezależnego pliku JSON.</p>
 
         <div class="cards">
-            <div class="card"><h3>Aktualna pojemność</h3><p id="current-pojemnosc">-</p></div>
-            <div class="card"><h3>Rzędna wody</h3><p id="current-rzedna">-</p></div>
-            <div class="card"><h3>Rezerwa powodziowa</h3><p id="current-rezerwa">-</p></div>
+            <div class="card"><h3>Aktualna pojemność</h3><p id="current-pojemnosc">Ładowanie...</p></div>
+            <div class="card"><h3>Rzędna wody</h3><p id="current-rzedna">Ładowanie...</p></div>
+            <div class="card"><h3>Rezerwa powodziowa</h3><p id="current-rezerwa">Ładowanie...</p></div>
         </div>
 
         <h2>Pojemność zbiornika (Ostatnie dni)</h2>
@@ -49,44 +50,53 @@
                 </tr>
             </thead>
             <tbody id="data-table-body">
-                <!-- Dane zostaną wstrzyknięte przez skrypt JavaScript -->
+                <tr><td colspan="6" style="text-align:center;">Pobieranie danych archiwalnych...</td></tr>
             </tbody>
         </table>
     </div>
 
     <script>
-        // Pobieranie danych z zewnętrznego pliku JSON
-        fetch('dane.json')
-            .then(response => response.json())
-            .then(data => {
-                if(data.length === 0) return;
+        document.addEventListener("DOMContentLoaded", async () => {
+            try {
+                // Szybkie pobranie pliku z danymi bez blokowania przeglądarki
+                const response = await fetch('dane.json?t=' + new Date().getTime()); // Ominięcie cache, by dane zawsze były świeże
+                if (!response.ok) throw new Error("Brak dostępu do pliku danych");
+                const data = await response.json();
+                
+                if (!data || data.length === 0) {
+                    document.getElementById('data-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center;">Brak danych do wyświetlenia</td></tr>';
+                    return;
+                }
 
-                // 1. Aktualizacja kafelków na górze najnowszym wpisem
+                // 1. Natychmiastowe uzupełnienie kafelków na górze strony
                 const najnowszy = data[0];
-                document.getElementById('current-pojemnosc').textContent = `${najnowszy.pojemnosc.toFixed(2)} mln m³`;
-                document.getElementById('current-rzedna').textContent = `${najnowszy.rzedna.toFixed(2)} m n.p.m.`;
-                document.getElementById('current-rezerwa').textContent = `${najnowszy.rezerwa.toFixed(2)} mln m³`;
+                document.getElementById('current-pojemnosc').textContent = `${parseFloat(najnowszy.pojemnosc).toFixed(2)} mln m³`;
+                document.getElementById('current-rzedna').textContent = `${parseFloat(najnowszy.rzedna).toFixed(2)} m n.p.m.`;
+                document.getElementById('current-rezerwa').textContent = `${parseFloat(najnowszy.rezerwa).toFixed(2)} mln m³`;
 
-                // 2. Dynamiczne budowanie tabeli HTML
+                // 2. Optymalne budowanie tabeli (w pamięci RAM, bez obciążania ekranu)
                 const tableBody = document.getElementById('data-table-body');
-                data.forEach(item => {
-                    const row = `<tr>
+                let tableHTML = '';
+                
+                for (let i = 0; i < data.length; i++) {
+                    const item = data[i];
+                    tableHTML += `<tr>
                         <td>${item.data}</td>
-                        <td>${item.rzedna.toFixed(2)}</td>
-                        <td>${item.pojemnosc.toFixed(2)}</td>
-                        <td>${item.doplyw.toFixed(2)}</td>
-                        <td>${item.odplyw.toFixed(2)}</td>
-                        <td>${item.rezerwa.toFixed(2)}</td>
+                        <td>${parseFloat(item.rzedna).toFixed(2)}</td>
+                        <td>${parseFloat(item.pojemnosc).toFixed(2)}</td>
+                        <td>${parseFloat(item.doplyw).toFixed(2)}</td>
+                        <td>${parseFloat(item.odplyw).toFixed(2)}</td>
+                        <td>${parseFloat(item.rezerwa).toFixed(2)}</td>
                     </tr>`;
-                    tableBody.innerHTML += row;
-                });
+                }
+                tableBody.innerHTML = tableHTML; // Wstrzykujemy całą gotową tabelę na raz!
 
-                // 3. Przygotowanie danych do wykresu (odwrócenie chronologiczne)
+                // 3. Przygotowanie danych do wykresu (odwrócenie kolejności)
                 const wykresDane = [...data].reverse();
                 const labels = wykresDane.map(item => item.data);
-                const pojemnosci = wykresDane.map(item => item.pojemnosc);
+                const pojemnosci = wykresDane.map(item => parseFloat(item.pojemnosc));
 
-                // 4. Renderowanie wykresu
+                // 4. Inicjalizacja wykresu Chart.js
                 const ctx = document.getElementById('jeziorskoChart').getContext('2d');
                 new Chart(ctx, {
                     type: 'line',
@@ -98,16 +108,22 @@
                             borderColor: '#0077b6',
                             backgroundColor: 'rgba(0, 119, 182, 0.1)',
                             fill: true,
-                            tension: 0.2
+                            tension: 0.2,
+                            borderWidth: 3
                         }]
                     },
                     options: {
                         responsive: true,
-                        maintainAspectRatio: false
+                        maintainAspectRatio: false,
+                        animation: { duration: 400 } // Szybsza animacja wejścia wykresu
                     }
                 });
-            })
-            .catch(err => console.error("Błąd ładowania pliku JSON:", err));
+
+            } catch (err) {
+                console.error("Błąd systemu:", err);
+                document.getElementById('data-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Błąd ładowania danych monitoringu</td></tr>';
+            }
+        });
     </script>
 </body>
 </html>
