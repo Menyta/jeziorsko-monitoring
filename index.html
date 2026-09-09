@@ -4,115 +4,60 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zalew Jeziorsko — Monitoring i Archiwum</title>
-    <!-- Ładowanie biblioteki do wykresów -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; background: #f8f9fa; color: #333; }
-        h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
-        .grid { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex: 1; min-width: 200px; }
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1, h3 { color: #023e8a; }
+        .cards { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 200px; }
         .card h3 { margin: 0 0 10px 0; font-size: 14px; color: #666; text-transform: uppercase; }
-        .card p { margin: 0; font-size: 24px; font-weight: bold; color: #222; }
-        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card p { margin: 0; font-size: 24px; font-weight: bold; color: #03045e; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #0056b3; color: white; }
-        tr:hover { background-color: #f1f1f1; }
-        footer { margin-top: 40px; font-size: 12px; color: #777; text-align: center; }
+        th { background-color: #0077b6; color: white; }
+        tr:hover { background-color: #f1f5f9; }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h1>Zalew Jeziorsko — Przebieg i Monitoring</h1>
+        <p>Prywatne archiwum pojemności i poziomu wody na podstawie danych hydrologicznych.</p>
 
-    <h1>Zalew Jeziorsko — Przebieg i Monitoring</h1>
-    <p>Prywatne archiwum pojemności i poziomu wody na podstawie danych hydrologicznych.</p>
+        <div class="cards">
+            <div class="card">
+                <h3>Aktualna pojemność</h3>
+                <p id="current-pojemnosc">29.74 mln m³</p>
+            </div>
+            <div class="card">
+                <h3>Rzędna wody</h3>
+                <p id="current-rzedna">116.25 m n.p.m.</p>
+            </div>
+            <div class="card">
+                <h3>Rezerwa powodziowa</h3>
+                <p id="current-rezerwa">184.23 mln m³</p>
+            </div>
+        </div>
 
-    <!-- Karty z aktualnym stanem -->
-    <div class="grid">
-        <div class="card">
-            <h3>Aktualna pojemność</h3>
-            <p id="current-capacity">29.74 mln m³</p>
-        </div>
-        <div class="card">
-            <h3>Rzędna wody</h3>
-            <p id="current-level">116.25 m n.p.m.</p>
-        </div>
-        <div class="card">
-            <h3>Rezerwa powodziowa</h3>
-            <p id="current-reserve">184.23 mln m³</p>
-        </div>
+        <h2>Dane źródłowe</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Rzędna [m n.p.m.]</th>
+                    <th>Pojemność [mln m³]</th>
+                    <th>Dopływ [m³/s]</th>
+                    <th>Odpływ [m³/s]</th>
+                    <th>Rezerwa [mln m³]</th>
+                </tr>
+            </thead>
+            <tbody id="data-table-body">
+<!-- DATA_START -->
+<tr><td>2026-09-05</td><td>116.25</td><td>29.74</td><td>29.92</td><td>32.00</td><td>184.23</td></tr>
+<tr><td>2026-09-04</td><td>116.26</td><td>29.92</td><td>28.50</td><td>32.00</td><td>184.05</td></tr>
+<!-- DATA_END -->
+            </tbody>
+        </table>
+        <p style="font-size: 12px; color: #666; margin-top: 15px;">Dane poglądowe. Maksymalna pojemność retencyjna Jeziorska wynosi 202.8 mln m³.</p>
     </div>
-
-    <!-- Kontener wykresu -->
-    <div class="chart-container">
-        <h2>Pojemność zbiornika (Ostatnie dni)</h2>
-        <canvas id="jeziorskoChart"></canvas>
-    </div>
-
-    <!-- Tabela danych źródłowych -->
-    <h2>Dane źródłowe</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Data</th>
-                <th>Rzędna [m n.p.m.]</th>
-                <th>Pojemność [mln m³]</th>
-                <th>Dopływ [m³/s]</th>
-                <th>Odpływ [m³/s]</th>
-                <th>Rezerwa [mln m³]</th>
-            </tr>
-        </thead>
-        <tbody>
-            <!-- Tutaj będziesz ręcznie lub automatycznie dopisywać kolejne wiersze z dniami -->
-            <tr>
-                <td>2026-09-05</td>
-                <td>116.25</td>
-                <td>29.74</td>
-                <td>29.92</td>
-                <td>32.00</td>
-                <td>184.23</td>
-            </tr>
-            <tr>
-                <td>2026-09-04</td>
-                <td>116.26</td>
-                <td>29.92</td>
-                <td>28.50</td>
-                <td>32.00</td>
-                <td>184.05</td>
-            </tr>
-        </tbody>
-    </table>
-
-    <footer>
-        <p>Dane poglądowe. Maksymalna pojemność retencyjna Jeziorska wynosi 202.8 mln m³.</p>
-    </footer>
-
-    <script>
-        // Skrypt obsługujący wykres historyczny
-        const ctx = document.getElementById('jeziorskoChart').getContext('2d');
-        const jeziorskoChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: ['2026-09-04', '2026-09-05'], // Daty na osi X
-                datasets: [{
-                    label: 'Pojemność aktualna (mln m³)',
-                    data: [29.92, 29.74], // Dane pojemności
-                    borderColor: '#0056b3',
-                    backgroundColor: 'rgba(0, 86, 179, 0.1)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        title: { display: true, text: 'mln m³' }
-                    }
-                }
-            }
-        });
-    </script>
 </body>
 </html>
