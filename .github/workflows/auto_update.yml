@@ -2,20 +2,20 @@ name: Automatyczny Monitoring Jeziorska
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Uruchamia się codziennie o 6:00 rano czasu UTC (w Polsce 7:00 lub 8:00)
-  workflow_dispatch: # Daje Ci przycisk do ręcznego uruchomienia w dowolnym momencie
+    - cron: '0 6 * * *' # Uruchamia się codziennie o 6:00 rano czasu UTC
+  workflow_dispatch: # Przycisk do ręcznego uruchomienia
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Wymagane uprawnienie, aby bot mógł zapisać zmiany w pliku HTML
+      contents: write # Wymagane uprawnienie do zapisu pliku HTML
     steps:
     - name: Pobranie kodu repozytorium
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # Zaktualizowano z v3 na v4
 
     - name: Konfiguracja Pythona
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5 # Zaktualizowano z v4 na v5
       with:
         python-version: '3.x'
 
