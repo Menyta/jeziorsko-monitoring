@@ -84,9 +84,9 @@
             for (let i = rows.length - 1; i >= 0; i--) {
                 const cells = rows[i].querySelectorAll("td");
                 if (cells.length >= 3) {
-                    labels.push(cells[0].textContent.trim()); // Data z 1. kolumny
-                    rzednaData.push(parseFloat(cells[1].textContent.trim())); // Rzędna z 2. kolumny
-                    pojemnoscData.push(parseFloat(cells[2].textContent.trim())); // Pojemność z 3. kolumny
+                    labels.push(cells[0].textContent.trim());       // Kolumna 0: Data
+                    rzednaData.push(parseFloat(cells[1].textContent.trim()));   // Kolumna 1: Rzędna
+                    pojemnoscData.push(parseFloat(cells[2].textContent.trim())); // Kolumna 2: Pojemność
                 }
             }
 
@@ -112,7 +112,6 @@
                             data: rzednaData,
                             borderColor: '#00b4d8',
                             borderWidth: 2,
-                            borderDash:,
                             fill: false,
                             tension: 0.1,
                             yAxisID: 'y1'
