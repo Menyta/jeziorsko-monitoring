@@ -1,0 +1,32 @@
+name: Automatyczne pobieranie danych
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Uruchamiaj codziennie o godzinie 8:00 rano
+  workflow_dispatch: # Pozwala też uruchomić proces ręcznie jednym kliknięciem
+
+jobs:
+  update_data:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Pobranie kodu repozytorium
+      uses: actions/checkout@v3
+
+    - name: Instalacja Pythona
+      uses: actions/setup-python@v4
+      with:
+        python-state: '3.x'
+
+    - name: Instalacja bibliotek
+      run: pip install requests
+
+    - name: Uruchomienie skryptu
+      run: python pobierz_dane.py
+
+    - name: Zapisanie zmian na GitHubie
+      run: |
+        git config --global user.name "Auto Bot"
+        git config --global user.email "bot@github.com"
+        git add index.html
+        git commit -m "Automatyczna aktualizacja danych: $(date +'%Y-%m-%d')" || exit 0
+        git push
