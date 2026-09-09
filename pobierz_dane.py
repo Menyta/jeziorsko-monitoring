@@ -1,8 +1,3 @@
-import json
-import os
-import unicodedata
-from datetime import datetime, timezone
-
 import requests
 
 
@@ -11,95 +6,30 @@ import requests
 # ============================================================
 
 API_URL = "https://danepubliczne.imgw.pl/api/data/hydro/"
-JSON_FILE = "dane.json"
-
-# Nazwy stacji, które mogą być związane bezpośrednio
-# ze zbiornikiem Jeziorsko.
-ALLOWED_STATION_NAMES = {
-    "skecz­niew",
-    "skeczniew",
-    "jeziorsko",
-    "siedlatkow",
-    "siedlątków",
-}
-
-# Maksymalna liczba zapisanych pomiarów.
-# Przy pomiarze co godzinę daje to około 2 lat historii.
-MAX_HISTORY = 17520
 
 
 # ============================================================
-# POMOCNICZE
-# ============================================================
-
-def normalize_text(value):
-    """
-    Usuwa polskie znaki, spacje i normalizuje nazwę.
-    """
-
-    if value is None:
-        return ""
-
-    value = str(value).strip().lower()
-
-    value = unicodedata.normalize(
-        "NFKD",
-        value
-    )
-
-    value = "".join(
-        char
-        for char in value
-        if not unicodedata.combining(char)
-    )
-
-    return value.replace(" ", "")
-
-
-def parse_number(value):
-    """
-    Bezpiecznie zamienia wartość na float.
-    """
-
-    if value in (
-        None,
-        "",
-        "-",
-        "null",
-        "None",
-    ):
-        return None
-
-    try:
-        return float(
-            str(value)
-            .replace(",", ".")
-            .strip()
-        )
-    except (TypeError, ValueError):
-        return None
-
-
-# ============================================================
-# IMGW
+# POBIERANIE DANYCH IMGW
 # ============================================================
 
 def get_hydro_data():
     """
-    Pobiera aktualne dane hydrologiczne IMGW.
+    Pobiera aktualne dane hydrologiczne z oficjalnego API IMGW.
     """
 
+    print("=" * 80)
+    print("JEZIORSKO MONITORING - DIAGNOSTYKA")
+    print("=" * 80)
+    print()
     print("Pobieranie danych z IMGW...")
+    print()
 
     response = requests.get(
         API_URL,
         timeout=30,
         headers={
-            "User-Agent": (
-                "Mozilla/5.0 "
-                "Jeziorsko-Monitoring/1.0"
-            )
-        },
+            "User-Agent": "Jeziorsko-Monitoring/1.0"
+        }
     )
 
     response.raise_for_status()
@@ -108,8 +38,8 @@ def get_hydro_data():
         data = response.json()
     except ValueError as error:
         raise RuntimeError(
-            "IMGW zwróciło odpowiedź, "
-            "której nie można odczytać jako JSON."
+            "IMGW zwróciło odpowiedź, której "
+            "nie można odczytać jako JSON."
         ) from error
 
     if not isinstance(data, list):
@@ -120,441 +50,158 @@ def get_hydro_data():
     print(
         f"IMGW zwróciło {len(data)} stacji."
     )
+    print()
 
     return data
 
 
 # ============================================================
-# WYBÓR STACJI
+# DIAGNOSTYKA
 # ============================================================
 
-def find_jeziorsko_stations(data):
+def show_warta_stations(data):
     """
-    Szuka stacji o nazwach jednoznacznie związanych
-    z Jeziorskiem.
-
-    UWAGA:
-    Nie stosujemy tutaj wyszukiwania po samej rzece Warta
-    ani po przybliżonych współrzędnych.
-
-    Dzięki temu Koło, Sieradz itd. nie zostaną przypadkowo
-    potraktowane jako Jeziorsko.
+    Wyświetla wszystkie stacje IMGW znajdujące się
+    na rzece Warcie.
     """
 
-    matches = []
+    print("=" * 80)
+    print("STACJE IMGW NA RZECE WARTA")
+    print("=" * 80)
+    print()
+
+    found = []
 
     for station in data:
 
-        name = station.get("stacja")
-
-        normalized_name = normalize_text(name)
-
-        if normalized_name in {
-            "skeczniew",
-            "jeziorsko",
-            "siedlatkow",
-        }:
-            matches.append(station)
-
-    return matches
-
-
-def find_station(data):
-    """
-    Zwraca jedną właściwą stację.
-
-    Jeżeli API nie pozwala jednoznacznie wskazać stacji,
-    zatrzymujemy program zamiast zapisywać błędne dane.
-    """
-
-    matches = find_jeziorsko_stations(data)
-
-    if not matches:
-        raise RuntimeError(
-            "\n"
-            "NIE ZNALEZIONO WŁAŚCIWEJ STACJI IMGW.\n"
-            "\n"
-            "API IMGW nie zwróciło stacji o nazwie "
-            "Skęczniew / Jeziorsko / Siedlątków.\n"
-            "\n"
-            "Dla bezpieczeństwa NIE zapisuję danych "
-            "z innej stacji.\n"
-            "\n"
-            "To celowe zachowanie — nie chcemy ponownie "
-            "zapisać np. Koła jako Jeziorsko.\n"
-        )
-
-    if len(matches) > 1:
-
-        print(
-            "Znaleziono kilka potencjalnych stacji:"
-        )
-
-        for station in matches:
-            print(
-                f"  - {station.get('stacja')} "
-                f"(ID: {station.get('id_stacji')})"
-            )
-
-        # Preferujemy Skęczniew.
-        for station in matches:
-
-            if (
-                normalize_text(
-                    station.get("stacja")
-                )
-                == "skeczniew"
-            ):
-                return station
-
-        # Następnie Jeziorsko.
-        for station in matches:
-
-            if (
-                normalize_text(
-                    station.get("stacja")
-                )
-                == "jeziorsko"
-            ):
-                return station
-
-        # Jeżeli nadal jest kilka, nie zgadujemy.
-        raise RuntimeError(
-            "Znaleziono kilka potencjalnych stacji "
-            "Jeziorsko i nie można jednoznacznie "
-            "wybrać właściwej."
-        )
-
-    return matches[0]
-
-
-# ============================================================
-# HISTORIA
-# ============================================================
-
-def load_history():
-    """
-    Wczytuje istniejącą historię z dane.json.
-    """
-
-    if not os.path.exists(JSON_FILE):
-        return []
-
-    try:
-
-        with open(
-            JSON_FILE,
-            "r",
-            encoding="utf-8",
-        ) as file:
-
-            data = json.load(file)
-
-        if isinstance(data, list):
-            return data
-
-        print(
-            "UWAGA: dane.json nie zawiera listy. "
-            "Rozpoczynam nową historię."
-        )
-
-    except json.JSONDecodeError:
-
-        print(
-            "UWAGA: dane.json zawiera niepoprawny JSON. "
-            "Rozpoczynam nową historię."
-        )
-
-    except OSError as error:
-
-        print(
-            f"UWAGA: nie można odczytać dane.json: {error}"
-        )
-
-    return []
-
-
-def save_history(history):
-    """
-    Bezpiecznie zapisuje historię.
-
-    Najpierw zapisujemy plik tymczasowy,
-    dopiero potem podmieniamy dane.json.
-    """
-
-    temp_file = JSON_FILE + ".tmp"
-
-    with open(
-        temp_file,
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            history,
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-        file.write("\n")
-
-    os.replace(
-        temp_file,
-        JSON_FILE,
-    )
-
-
-# ============================================================
-# REKORD
-# ============================================================
-
-def calculate_rzedna(station):
-    """
-    Próbuje obliczyć rzędną zwierciadła wody.
-
-    IMGW podaje:
-      - rzędną zera wodowskazu
-      - stan wody w cm
-
-    Jeżeli któregoś parametru brakuje,
-    zwracamy None zamiast wymyślać wartość.
-    """
-
-    stan_wody = parse_number(
-        station.get("stan_wody")
-    )
-
-    zero_wodowskazu = parse_number(
-        station.get("rzedna_zerawodowskazu")
-    )
-
-    if (
-        stan_wody is None
-        or zero_wodowskazu is None
-    ):
-        return None
-
-    return round(
-        zero_wodowskazu
-        + stan_wody / 100.0,
-        3,
-    )
-
-
-def build_record(station):
-    """
-    Tworzy rekord do dane.json.
-    """
-
-    measurement_time = (
-        station.get(
-            "stan_wody_data_pomiaru"
-        )
-    )
-
-    if not measurement_time:
-
-        raise RuntimeError(
-            "IMGW nie podało czasu pomiaru "
-            "stanu wody."
-        )
-
-    record = {
-        "data": measurement_time,
-
-        "stacja": station.get(
-            "stacja"
-        ),
-
-        "rzeka": station.get(
-            "rzeka"
-        ),
-
-        "id_stacji": station.get(
-            "id_stacji"
-        ),
-
-        "stan_wody": parse_number(
-            station.get("stan_wody")
-        ),
-
-        "rzedna": calculate_rzedna(
-            station
-        ),
-
-        "przeplyw": parse_number(
-            station.get("przeplyw")
-        ),
-
-        "stan_alarmowy": parse_number(
-            station.get("stan_alarmowy")
-        ),
-
-        "stan_ostrzegawczy": parse_number(
-            station.get("stan_ostrzegawczy")
-        ),
-
-        "pobrano": datetime.now(
-            timezone.utc
-        ).isoformat(),
-    }
-
-    return record
-
-
-# ============================================================
-# DODAWANIE DO HISTORII
-# ============================================================
-
-def add_record(history, record):
-    """
-    Dodaje rekord, jeżeli taki pomiar nie istnieje.
-    """
-
-    measurement_time = record.get(
-        "data"
-    )
-
-    station_id = record.get(
-        "id_stacji"
-    )
-
-    for item in history:
-
-        if not isinstance(
-            item,
-            dict,
-        ):
+        river = str(
+            station.get("rzeka") or ""
+        ).strip().lower()
+
+        if river != "warta":
             continue
 
-        if (
-            item.get("data")
-            == measurement_time
-            and
-            item.get("id_stacji")
-            == station_id
-        ):
-            print(
-                "Ten pomiar już istnieje "
-                "w dane.json."
-            )
+        found.append(station)
 
-            return history
+        print(
+            f"ID: {station.get('id_stacji')}"
+        )
 
-    history.append(record)
+        print(
+            f"STACJA: {station.get('stacja')}"
+        )
 
-    # Najnowsze na początku.
-    history.sort(
-        key=lambda item: (
-            item.get("data")
-            or ""
-        ),
-        reverse=True,
+        print(
+            f"RZEKA: {station.get('rzeka')}"
+        )
+
+        print(
+            f"LAT: {station.get('lat')}"
+        )
+
+        print(
+            f"LON: {station.get('lon')}"
+        )
+
+        print(
+            f"STAN WODY: {station.get('stan_wody')}"
+        )
+
+        print(
+            f"DATA POMIARU: "
+            f"{station.get('stan_wody_data_pomiaru')}"
+        )
+
+        print(
+            f"RZĘDNA ZERA: "
+            f"{station.get('rzedna_zerawodowskazu')}"
+        )
+
+        print(
+            f"PRZEPŁYW: {station.get('przeplyw')}"
+        )
+
+        print(
+            f"STAN OSTRZEGAWCZY: "
+            f"{station.get('stan_ostrzegawczy')}"
+        )
+
+        print(
+            f"STAN ALARMOWY: "
+            f"{station.get('stan_alarmowy')}"
+        )
+
+        print("-" * 80)
+
+    print()
+
+    print("=" * 80)
+    print(
+        f"LICZBA STACJI NA WARCIE: {len(found)}"
     )
+    print("=" * 80)
+    print()
 
-    # Ograniczenie historii.
-    history = history[
-        :MAX_HISTORY
-    ]
+    if not found:
+        print(
+            "UWAGA: API IMGW nie zwróciło żadnej "
+            "stacji na rzece Warta."
+        )
 
-    return history
+    return found
 
 
 # ============================================================
 # GŁÓWNA FUNKCJA
 # ============================================================
 
-def update():
+def main():
 
-    print("=" * 60)
-    print("JEZIORSKO MONITORING")
-    print("Aktualizacja danych IMGW")
-    print("=" * 60)
+    try:
 
-    # 1. Pobierz dane IMGW.
-    data = get_hydro_data()
+        data = get_hydro_data()
 
-    # 2. Znajdź właściwą stację.
-    station = find_station(data)
+        show_warta_stations(data)
 
-    print()
-    print("ZNALEZIONA STACJA:")
-    print(
-        f"  Nazwa:     {station.get('stacja')}"
-    )
-    print(
-        f"  Rzeka:     {station.get('rzeka')}"
-    )
-    print(
-        f"  ID:        {station.get('id_stacji')}"
-    )
-    print()
-
-    # 3. Utwórz rekord.
-    record = build_record(
-        station
-    )
-
-    print("POMIAR:")
-    print(
-        f"  Czas:      {record.get('data')}"
-    )
-    print(
-        f"  Stan:      {record.get('stan_wody')} cm"
-    )
-    print(
-        f"  Rzędna:    {record.get('rzedna')} m"
-    )
-    print(
-        f"  Przepływ:  {record.get('przeplyw')} m3/s"
-    )
-    print(
-        f"  Alarmowy:  {record.get('stan_alarmowy')} cm"
-    )
-    print(
-        f"  Ostrzeg.:  {record.get('stan_ostrzegawczy')} cm"
-    )
-    print()
-
-    # 4. Wczytaj historię.
-    history = load_history()
-
-    old_count = len(history)
-
-    # 5. Dodaj pomiar.
-    history = add_record(
-        history,
-        record,
-    )
-
-    new_count = len(history)
-
-    # 6. Zapisz tylko jeżeli coś się zmieniło.
-    if new_count != old_count:
-
-        save_history(
-            history
-        )
-
+        print()
+        print("=" * 80)
+        print("DIAGNOSTYKA ZAKOŃCZONA")
+        print("=" * 80)
+        print()
         print(
-            "NOWY POMIAR ZAPISANY."
+            "Dane NIE zostały zapisane do dane.json."
         )
-
         print(
-            f"Liczba rekordów: {new_count}"
+            "To jest celowe — najpierw ustalamy "
+            "prawidłową stację Jeziorska."
         )
 
-    else:
+        # Celowo kończymy kodem 1.
+        # Dzięki temu workflow pokaże, że jest to
+        # etap diagnostyczny, a nie aktualizacja danych.
+        raise SystemExit(1)
 
-        print(
-            "Brak nowych danych — "
-            "plik nie został zmieniony."
-        )
+    except requests.RequestException as error:
 
-    print("=" * 60)
-    print("ZAKOŃCZONO")
-    print("=" * 60)
+        print()
+        print("=" * 80)
+        print("BŁĄD POŁĄCZENIA Z IMGW")
+        print("=" * 80)
+        print()
+        print(error)
+
+        raise SystemExit(1)
+
+    except Exception as error:
+
+        print()
+        print("=" * 80)
+        print("BŁĄD")
+        print("=" * 80)
+        print()
+        print(error)
+
+        raise SystemExit(1)
 
 
 # ============================================================
@@ -562,27 +209,4 @@ def update():
 # ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        update()
-
-    except requests.RequestException as error:
-
-        print()
-        print(
-            "BŁĄD POŁĄCZENIA Z IMGW:"
-        )
-        print(error)
-
-        raise
-
-    except Exception as error:
-
-        print()
-        print(
-            "BŁĄD:"
-        )
-        print(error)
-
-        raise
+    main()
