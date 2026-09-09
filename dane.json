@@ -1,11 +1,12 @@
-[
-  {
-    "data": "2026-09-05",
-    "rzedna": 116.25,
-    "pojemnosc": 29.74,
-    "doplyw": 29.92,
-    "odplyw": 32.00,
-    "rezerwa": 184.23
-  }
-]
-
+{
+  "data": "2026-09-09 11:20:00",
+  "stacja": "Skęczniew",
+  "rzeka": "Warta",
+  "id_stacji": "...",
+  "stan_wody": 625,
+  "rzedna": 116.25,
+  "przeplyw": 32.0,
+  "stan_alarmowy": 720,
+  "stan_ostrzegawczy": 650,
+  "pobrano": "2026-09-09T..."
+}
