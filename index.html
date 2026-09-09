@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zalew Jeziorsko — Monitoring i Archiwum</title>
-    <!-- Pobranie biblioteki Chart.js z oficjalnego serwera CDN -->
     <script src="https://jsdelivr.net"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
@@ -14,10 +13,7 @@
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 200px; }
         .card h3 { margin: 0 0 10px 0; font-size: 14px; color: #666; text-transform: uppercase; }
         .card p { margin: 0; font-size: 24px; font-weight: bold; color: #03045e; }
-        
-        /* Styl kontenera wykresu */
-        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 30px; position: relative; height: 400px; width: 100%; box-sizing: border-box; }
-        
+        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 30px; position: relative; height: 350px; }
         table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #0077b6; color: white; }
@@ -27,24 +23,14 @@
 <body>
     <div class="container">
         <h1>Zalew Jeziorsko — Przebieg i Monitoring</h1>
-        <p>Prywatne archiwum pojemności i poziomu wody na podstawie danych hydrologicznych.</p>
+        <p>Prywatne archiwum poziomu wody pobierane automatycznie z niezależnego pliku JSON.</p>
 
         <div class="cards">
-            <div class="card">
-                <h3>Aktualna pojemność</h3>
-                <p id="current-pojemnosc">29.74 mln m³</p>
-            </div>
-            <div class="card">
-                <h3>Rzędna wody</h3>
-                <p id="current-rzedna">116.25 m n.p.m.</p>
-            </div>
-            <div class="card">
-                <h3>Rezerwa powodziowa</h3>
-                <p id="current-rezerwa">184.23 mln m³</p>
-            </div>
+            <div class="card"><h3>Aktualna pojemność</h3><p id="current-pojemnosc">-</p></div>
+            <div class="card"><h3>Rzędna wody</h3><p id="current-rzedna">-</p></div>
+            <div class="card"><h3>Rezerwa powodziowa</h3><p id="current-rezerwa">-</p></div>
         </div>
 
-        <!-- SEKCJA WYKRESU -->
         <h2>Pojemność zbiornika (Ostatnie dni)</h2>
         <div class="chart-container">
             <canvas id="jeziorskoChart"></canvas>
@@ -63,86 +49,65 @@
                 </tr>
             </thead>
             <tbody id="data-table-body">
-<!-- DATA_START -->
-<tr><td>2026-09-05</td><td>116.25</td><td>29.74</td><td>29.92</td><td>32.00</td><td>184.23</td></tr>
-<tr><td>2026-09-04</td><td>116.26</td><td>29.92</td><td>28.50</td><td>32.00</td><td>184.05</td></tr>
-<!-- DATA_END -->
+                <!-- Dane zostaną wstrzyknięte przez skrypt JavaScript -->
             </tbody>
         </table>
-        <p style="font-size: 12px; color: #666; margin-top: 15px;">Dane poglądowe. Maksymalna pojemność retencyjna Jeziorska wynosi 202.8 mln m³.</p>
     </div>
 
-    <!-- SKRYPT GENERUJĄCY WYKRES AUTOMATYCZNIE Z TABELI -->
     <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            const rows = document.querySelectorAll("#data-table-body tr");
-            const labels = [];
-            const pojemnoscData = [];
-            const rzednaData = [];
+        // Pobieranie danych z zewnętrznego pliku JSON
+        fetch('dane.json')
+            .then(response => response.json())
+            .then(data => {
+                if(data.length === 0) return;
 
-            // Pobieranie danych z komórek tabeli od końca (od najstarszych)
-            for (let i = rows.length - 1; i >= 0; i--) {
-                const cells = rows[i].querySelectorAll("td");
-                if (cells.length >= 3) {
-                    labels.push(cells[0].textContent.trim());       // Kolumna 0: Data
-                    rzednaData.push(parseFloat(cells[1].textContent.trim()));   // Kolumna 1: Rzędna
-                    pojemnoscData.push(parseFloat(cells[2].textContent.trim())); // Kolumna 2: Pojemność
-                }
-            }
+                // 1. Aktualizacja kafelków na górze najnowszym wpisem
+                const najnowszy = data[0];
+                document.getElementById('current-pojemnosc').textContent = `${najnowszy.pojemnosc.toFixed(2)} mln m³`;
+                document.getElementById('current-rzedna').textContent = `${najnowszy.rzedna.toFixed(2)} m n.p.m.`;
+                document.getElementById('current-rezerwa').textContent = `${najnowszy.rezerwa.toFixed(2)} mln m³`;
 
-            // Inicjalizacja wykresu Chart.js
-            const ctx = document.getElementById('jeziorskoChart').getContext('2d');
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
+                // 2. Dynamiczne budowanie tabeli HTML
+                const tableBody = document.getElementById('data-table-body');
+                data.forEach(item => {
+                    const row = `<tr>
+                        <td>${item.data}</td>
+                        <td>${item.rzedna.toFixed(2)}</td>
+                        <td>${item.pojemnosc.toFixed(2)}</td>
+                        <td>${item.doplyw.toFixed(2)}</td>
+                        <td>${item.odplyw.toFixed(2)}</td>
+                        <td>${item.rezerwa.toFixed(2)}</td>
+                    </tr>`;
+                    tableBody.innerHTML += row;
+                });
+
+                // 3. Przygotowanie danych do wykresu (odwrócenie chronologiczne)
+                const wykresDane = [...data].reverse();
+                const labels = wykresDane.map(item => item.data);
+                const pojemnosci = wykresDane.map(item => item.pojemnosc);
+
+                // 4. Renderowanie wykresu
+                const ctx = document.getElementById('jeziorskoChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
                             label: 'Pojemność (mln m³)',
-                            data: pojemnoscData,
+                            data: pojemnosci,
                             borderColor: '#0077b6',
                             backgroundColor: 'rgba(0, 119, 182, 0.1)',
-                            borderWidth: 3,
                             fill: true,
-                            tension: 0.3,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Rzędna (m n.p.m.)',
-                            data: rzednaData,
-                            borderColor: '#00b4d8',
-                            borderWidth: 2,
-                            fill: false,
-                            tension: 0.1,
-                            yAxisID: 'y1'
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: { mode: 'index', intersect: false }
+                            tension: 0.2
+                        }]
                     },
-                    scales: {
-                        y: {
-                            type: 'linear',
-                            display: true,
-                            position: 'left',
-                            title: { display: true, text: 'Pojemność [mln m³]' }
-                        },
-                        y1: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            title: { display: true, text: 'Rzędna [m n.p.m.]' },
-                            grid: { drawOnChartArea: false }
-                        }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
                     }
-                }
-            });
-        });
+                });
+            })
+            .catch(err => console.error("Błąd ładowania pliku JSON:", err));
     </script>
 </body>
 </html>
