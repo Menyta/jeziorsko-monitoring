@@ -2,20 +2,22 @@ name: Automatyczny Monitoring Jeziorska
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Uruchamia się codziennie o 6:00 rano czasu UTC
-  workflow_dispatch: # Przycisk do ręcznego uruchomienia
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Wymagane uprawnienie do zapisu pliku HTML
+      contents: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
     - name: Pobranie kodu repozytorium
-      uses: actions/checkout@v4 # Zaktualizowano z v3 na v4
+      uses: actions/checkout@v4
 
     - name: Konfiguracja Pythona
-      uses: actions/setup-python@v5 # Zaktualizowano z v4 na v5
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
@@ -25,10 +27,10 @@ jobs:
     - name: Uruchomienie skrobaka danych
       run: python pobierz_dane.py
 
-    - name: Zapisanie zmian w repozytorium
+    - name: Zapisanie zmian w pliku JSON
       run: |
         git config --global user.name "JeziorskoBot"
         git config --global user.email "bot@jeziorsko.internal"
-        git add index.html
-        git commit -m "Automatyczna aktualizacja danych hydrologicznych" || echo "Brak nowych danych do dodania"
+        git add dane.json
+        git commit -m "Automatyczna aktualizacja bazy JSON" || echo "Brak zmian"
         git push
