@@ -1,32 +1,34 @@
-name: Automatyczne pobieranie danych
+name: Automatyczny Monitoring Jeziorska
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Uruchamiaj codziennie o godzinie 8:00 rano
-  workflow_dispatch: # Pozwala też uruchomić proces ręcznie jednym kliknięciem
+    - cron: '0 6 * * *' # Uruchamia się codziennie o 6:00 rano czasu UTC (w Polsce 7:00 lub 8:00)
+  workflow_dispatch: # Daje Ci przycisk do ręcznego uruchomienia w dowolnym momencie
 
 jobs:
-  update_data:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Wymagane uprawnienie, aby bot mógł zapisać zmiany w pliku HTML
     steps:
     - name: Pobranie kodu repozytorium
       uses: actions/checkout@v3
 
-    - name: Instalacja Pythona
+    - name: Konfiguracja Pythona
       uses: actions/setup-python@v4
       with:
-        python-state: '3.x'
+        python-version: '3.x'
 
-    - name: Instalacja bibliotek
+    - name: Instalacja biblioteki Requests
       run: pip install requests
 
-    - name: Uruchomienie skryptu
+    - name: Uruchomienie skrobaka danych
       run: python pobierz_dane.py
 
-    - name: Zapisanie zmian na GitHubie
+    - name: Zapisanie zmian w repozytorium
       run: |
-        git config --global user.name "Auto Bot"
-        git config --global user.email "bot@github.com"
+        git config --global user.name "JeziorskoBot"
+        git config --global user.email "bot@jeziorsko.internal"
         git add index.html
-        git commit -m "Automatyczna aktualizacja danych: $(date +'%Y-%m-%d')" || exit 0
+        git commit -m "Automatyczna aktualizacja danych hydrologicznych" || echo "Brak nowych danych do dodania"
         git push
