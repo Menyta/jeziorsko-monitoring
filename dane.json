@@ -1,0 +1,18 @@
+[
+  {
+    "data": "2026-09-05",
+    "rzedna": 116.25,
+    "pojemnosc": 29.74,
+    "doplyw": 29.92,
+    "odplyw": 32.00,
+    "rezerwa": 184.23
+  },
+  {
+    "data": "2026-09-04",
+    "rzedna": 116.26,
+    "pojemnosc": 29.92,
+    "doplyw": 28.50,
+    "odplyw": 32.00,
+    "rezerwa": 184.05
+  }
+]
