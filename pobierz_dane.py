@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
 Jeziorsko Monitoring
-Pobiera najnowszy raport PDF ze strony Wód Polskich RZGW Poznań,
-wyszukuje dane dla zbiornika Jeziorsko i aktualizuje dane.json.
+Parser aktualnego formatu PDF Wód Polskich RZGW Poznań.
+
+Aktualny raport (10.09.2026) ma tabelę:
+Zbiornik | Rzeka | Rzędna wody górnej | Zmiana dobowa rzędnej |
+Napełnienie | Zmiana dobowa napełnienia | Dopływ średni dobowy |
+Odpływ średni dobowy | Aktualna rezerwa powodziowa
+
+Przykładowy wiersz z raportu:
+Zb. Jeziorsko Warta 118,06 -0,01 71,37 -0,29 14,89 18,25 142,60
 
 Źródło:
 https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6
@@ -23,12 +30,11 @@ from pypdf import PdfReader
 SOURCE_PAGE = "https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6"
 DATA_FILE = Path("dane.json")
 
-# Całkowita pojemność Jeziorska podawana w materiałach statystycznych.
-# W raporcie Wód Polskich publikowana jest natomiast rezerwa.
-TOTAL_CAPACITY_MLN_M3 = 202.8
-
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; Jeziorsko-Monitoring/1.0; +https://github.com/Menyta/jeziorsko-monitoring)"
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; Jeziorsko-Monitoring/1.0; "
+        "+https://github.com/Menyta/jeziorsko-monitoring)"
+    )
 }
 
 
@@ -38,6 +44,32 @@ def get(url, timeout=60):
     return response
 
 
+def normalize(text):
+    """Normalizuje tekst wyciągnięty z PDF."""
+    text = text.replace("\xa0", " ")
+    text = text.replace("\u2212", "-")
+    text = re.sub(r"[ \t\r\n]+", " ", text)
+    return text.strip()
+
+
+def extract_date_from_text(text):
+    """
+    Aktualny PDF zawiera na końcu:
+    ... z dnia 2026-09-10 z godz. 05:00 (UTC)
+    """
+    match = re.search(
+        r"z dnia\s+(20\d{2}-\d{2}-\d{2})\s+z godz\.\s+"
+        r"(\d{2}:\d{2})\s*\(UTC\)",
+        text,
+        re.IGNORECASE,
+    )
+
+    if match:
+        return match.group(1), match.group(2)
+
+    return None, None
+
+
 def find_pdf_links(html):
     soup = BeautifulSoup(html, "html.parser")
     links = []
@@ -45,14 +77,14 @@ def find_pdf_links(html):
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         text = a.get_text(" ", strip=True)
-        full = urljoin(SOURCE_PAGE, href)
+        full_url = urljoin(SOURCE_PAGE, href)
 
-        if ".pdf" in full.lower() or "zbiorniki_" in full.lower():
-            links.append((full, text))
+        if ".pdf" in full_url.lower() or "zbiorniki_" in full_url.lower():
+            links.append((full_url, text))
 
-    # Usunięcie duplikatów
     unique = []
     seen = set()
+
     for url, text in links:
         if url not in seen:
             unique.append((url, text))
@@ -61,21 +93,30 @@ def find_pdf_links(html):
     return unique
 
 
-def pdf_date(url, text=""):
-    """Wyciąga datę z nazwy PDF lub tekstu linku."""
-    source = f"{url} {text}"
-    m = re.search(r"(20\d{2})[-_.](\d{2})[-_.](\d{2})", source)
-    if m:
-        return datetime.strptime("-".join(m.groups()), "%Y-%m-%d").date()
+def date_from_filename(url, link_text=""):
+    source = f"{url} {link_text}"
 
-    return datetime.min.date()
+    match = re.search(
+        r"(20\d{2})[-_.](\d{2})[-_.](\d{2})",
+        source,
+    )
+
+    if match:
+        return "-".join(match.groups())
+
+    return None
 
 
 def find_latest_pdf():
     response = get(SOURCE_PAGE)
     links = find_pdf_links(response.text)
 
-    # Najpierw preferujemy raporty zbiornikowe.
+    if not links:
+        raise RuntimeError(
+            "Nie znaleziono plików PDF na stronie Wód Polskich."
+        )
+
+    # Raporty zbiorników mają w nazwie "zbiorniki".
     reservoir_links = [
         item for item in links
         if "zbiorniki" in f"{item[0]} {item[1]}".lower()
@@ -83,105 +124,91 @@ def find_latest_pdf():
 
     candidates = reservoir_links or links
 
-    if not candidates:
-        raise RuntimeError(
-            "Nie znaleziono żadnego pliku PDF na stronie Wód Polskich."
-        )
+    dated = []
+    for url, text in candidates:
+        d = date_from_filename(url, text)
+        if d:
+            dated.append((d, url, text))
 
-    candidates.sort(key=lambda x: pdf_date(x[0], x[1]), reverse=True)
-    return candidates[0]
+    if not dated:
+        # Jeśli nazwa pliku się zmieni, używamy pierwszego znalezionego PDF.
+        return candidates[0][0], candidates[0][1]
 
-
-def normalize_pdf_text(text):
-    # PDF-y potrafią rozdzielać wyrazy wieloma spacjami / znakami nowej linii.
-    text = text.replace("\xa0", " ")
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n+", "\n", text)
-    return text
+    dated.sort(reverse=True)
+    return dated[0][1], dated[0][2]
 
 
-def extract_jeziorsko(pdf_path):
-    reader = PdfReader(str(pdf_path))
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    text = normalize_pdf_text(text)
+def parse_jeziorsko(pdf_text):
+    """
+    Parsuje aktualny wiersz tabeli.
 
-    # Szukamy fragmentu zaczynającego się od Jeziorska i kończącego
-    # przed kolejnym zbiornikiem / kolejnym obszarem RZGW.
-    pattern = re.compile(
-        r"Na zbiorniku Jeziorsko(?P<section>.*?)(?=Na zbiorniku Poraj|"
-        r"Obszar administrowany przez RZGW w Rzeszowie|"
-        r"Obszar administrowany przez RZGW w Warszawie|"
-        r"\Z)",
-        re.IGNORECASE | re.DOTALL,
+    Aktualny format:
+    Zb. Jeziorsko Warta
+    118,06 -0,01 71,37 -0,29 14,89 18,25 142,60
+
+    Odpowiada to:
+    1. rzędna
+    2. zmiana dobowa rzędnej
+    3. napełnienie
+    4. zmiana dobowa napełnienia
+    5. dopływ
+    6. odpływ
+    7. rezerwa powodziowa
+    """
+
+    text = normalize(pdf_text)
+
+    # Bierzemy wszystko od "Zb. Jeziorsko Warta" do następnego zbiornika
+    # albo do końca dokumentu.
+    match = re.search(
+        r"Zb\.\s*Jeziorsko\s+Warta\s+"
+        r"(?P<values>.*?)(?=\s+Zb\.\s+Poraj\s+Warta|\s+Zestawienie|\Z)",
+        text,
+        re.IGNORECASE,
     )
-    match = pattern.search(text)
 
     if not match:
         raise RuntimeError(
-            "W PDF nie znaleziono sekcji 'Na zbiorniku Jeziorsko'. "
-            "Możliwa zmiana formatu raportu."
+            "Nie znaleziono w PDF wiersza 'Zb. Jeziorsko Warta'. "
+            "Sprawdź, czy Wody Polskie nie zmieniły formatu tabeli."
         )
 
-    section = "Na zbiorniku Jeziorsko" + match.group("section")
+    values_text = match.group("values")
 
-    def number(patterns, label):
-        for pattern in patterns:
-            m = re.search(pattern, section, re.IGNORECASE | re.DOTALL)
-            if m:
-                value = m.group(1).replace(" ", "").replace(",", ".")
-                try:
-                    return float(value)
-                except ValueError:
-                    pass
-        raise RuntimeError(f"Nie udało się odczytać wartości: {label}")
-
-    rzedna = number(
-        [
-            r"rzędna piętrzenia wynosi\s*([0-9]+[,.][0-9]+)\s*m",
-            r"rzędna piętrzenia wynosi\s*([0-9]+[,.][0-9]+)",
-        ],
-        "rzędna piętrzenia",
+    numbers = re.findall(
+        r"[-+]?\d+(?:[,.]\d+)?",
+        values_text,
     )
 
-    doplyw = number(
-        [
-            r"dopływ do zbiornika(?: za ostatnie [^,]+)? wynosi\s*([0-9]+[,.][0-9]+)\s*m[³3]\s*/?\s*s",
-            r"dopływ do zbiornika[^0-9]{0,80}([0-9]+[,.][0-9]+)\s*m[³3]\s*/?\s*s",
-        ],
-        "dopływ",
-    )
+    if len(numbers) < 7:
+        raise RuntimeError(
+            "Wiersz Jeziorska został znaleziony, ale zawiera mniej niż "
+            f"7 wartości liczbowych: {values_text!r}"
+        )
 
-    odplyw = number(
-        [
-            r"odpływie średnim(?: z ostatniej doby)?\s*([0-9]+[,.][0-9]+)\s*m[³3]\s*/?\s*s",
-            r"odpływ średni\s*([0-9]+[,.][0-9]+)\s*m[³3]\s*/?\s*s",
-        ],
-        "odpływ",
-    )
+    def f(value):
+        return float(value.replace(",", "."))
 
-    rezerwa = number(
-        [
-            r"dysponuje rezerwą\s*([0-9]+[,.][0-9]+)\s*mln",
-        ],
-        "rezerwa",
-    )
+    values = [f(x) for x in numbers[:7]]
 
-    # W raporcie nie ma bezpośrednio bieżącej objętości zbiornika.
-    # Jest rezerwa do maksymalnego poziomu piętrzenia. Dlatego wyliczamy
-    # wartość orientacyjną jako całkowita pojemność - rezerwa.
-    pojemnosc_szacowana = round(
-        max(0.0, TOTAL_CAPACITY_MLN_M3 - rezerwa), 2
-    )
+    (
+        rzedna,
+        zmiana_rzednej,
+        napelnienie,
+        zmiana_napelnienia,
+        doplyw,
+        odplyw,
+        rezerwa,
+    ) = values
 
     return {
-        "rzedna": round(rzedna, 2),
-        "doplyw": round(doplyw, 2),
-        "odplyw": round(odplyw, 2),
-        "rezerwa": round(rezerwa, 2),
-        "pojemnosc": pojemnosc_szacowana,
-        "pojemnosc_typ": "szacowana",
-        "pojemnosc_max": TOTAL_CAPACITY_MLN_M3,
-        "tekst_zrodlowy": section.strip(),
+        "rzedna": rzedna,
+        "zmiana_rzednej": zmiana_rzednej,
+        "napelnienie": napelnienie,
+        "zmiana_napelnienia": zmiana_napelnienia,
+        "doplyw": doplyw,
+        "odplyw": odplyw,
+        "rezerwa": rezerwa,
     }
 
 
@@ -191,10 +218,14 @@ def load_history():
 
     try:
         data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else [data]
-    except (json.JSONDecodeError, OSError):
-        print("UWAGA: nie udało się odczytać starego dane.json. Tworzę nową historię.")
-        return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return [data]
+    except (OSError, json.JSONDecodeError):
+        print("UWAGA: istniejący dane.json jest niepoprawny. Tworzę nową historię.")
+
+    return []
 
 
 def save_history(history):
@@ -212,24 +243,36 @@ def main():
     pdf_url, link_text = find_latest_pdf()
     print(f"Najnowszy PDF: {pdf_url}")
 
-    pdf_date_value = pdf_date(pdf_url, link_text)
-    if pdf_date_value == datetime.min.date():
+    pdf_path = Path("zbiorniki_latest.pdf")
+
+    response = get(pdf_url)
+    pdf_path.write_bytes(response.content)
+
+    reader = PdfReader(str(pdf_path))
+    pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+    report_date, report_time = extract_date_from_text(pdf_text)
+
+    if not report_date:
+        report_date = date_from_filename(pdf_url, link_text)
+
+    if not report_date:
         raise RuntimeError(
-            "Nie udało się ustalić daty raportu z nazwy PDF."
+            "Nie udało się ustalić daty raportu."
         )
 
-    pdf_path = Path("zbiorniki_latest.pdf")
-    pdf_response = get(pdf_url)
-    pdf_path.write_bytes(pdf_response.content)
+    if not report_time:
+        report_time = "05:00"
 
-    values = extract_jeziorsko(pdf_path)
+    values = parse_jeziorsko(pdf_text)
 
     record = {
-        "data": pdf_date_value.isoformat(),
+        "data": report_date,
+        "godzina_utc": report_time,
         "rzedna": values["rzedna"],
-        "pojemnosc": values["pojemnosc"],
-        "pojemnosc_typ": values["pojemnosc_typ"],
-        "pojemnosc_max": values["pojemnosc_max"],
+        "zmiana_rzednej": values["zmiana_rzednej"],
+        "napelnienie": values["napelnienie"],
+        "zmiana_napelnienia": values["zmiana_napelnienia"],
         "doplyw": values["doplyw"],
         "odplyw": values["odplyw"],
         "rezerwa": values["rezerwa"],
@@ -240,32 +283,45 @@ def main():
 
     history = load_history()
 
-    # Jeden wpis na raport/dzień. Jeśli raport został poprawiony,
-    # zastępujemy stary wpis tym nowszym.
+    # Jeden wpis dla danego raportu. Jeśli raport zostanie poprawiony,
+    # nowsze wykonanie zastąpi poprzedni wpis.
     history = [
-        item for item in history
-        if item.get("data") != record["data"]
+        item
+        for item in history
+        if not (
+            item.get("data") == record["data"]
+            and item.get("godzina_utc") == record["godzina_utc"]
+        )
     ]
 
     history.append(record)
-    history.sort(key=lambda item: item.get("data", ""), reverse=True)
+    history.sort(
+        key=lambda item: (
+            str(item.get("data", "")),
+            str(item.get("godzina_utc", "")),
+        ),
+        reverse=True,
+    )
 
-    # Chronimy repozytorium przed niekontrolowanym rozrostem.
     history = history[:1000]
-
     save_history(history)
 
-    # Usuwamy lokalny PDF - nie ma potrzeby zapisywania go w repo.
     try:
         pdf_path.unlink()
     except OSError:
         pass
 
-    print("\nOdczytane dane:")
-    for key in ("data", "rzedna", "pojemnosc", "doplyw", "odplyw", "rezerwa"):
-        print(f"  {key}: {record[key]}")
-
-    print(f"\nHistoria zawiera {len(history)} wpisów.")
+    print("\nOdczytane dane Jeziorska:")
+    print(f"  Data:                    {record['data']}")
+    print(f"  Godzina UTC:             {record['godzina_utc']}")
+    print(f"  Rzędna:                  {record['rzedna']:.2f} m n.p.m.")
+    print(f"  Zmiana dobowa rzędnej:   {record['zmiana_rzednej']:.2f} m")
+    print(f"  Napełnienie:             {record['napelnienie']:.2f} mln m3")
+    print(f"  Zmiana dobowa napełn.:   {record['zmiana_napelnienia']:.2f} mln m3")
+    print(f"  Dopływ:                  {record['doplyw']:.2f} m3/s")
+    print(f"  Odpływ:                  {record['odplyw']:.2f} m3/s")
+    print(f"  Rezerwa powodziowa:      {record['rezerwa']:.2f} mln m3")
+    print(f"\nHistoria: {len(history)} wpisów")
     print("dane.json został zaktualizowany.")
 
 
