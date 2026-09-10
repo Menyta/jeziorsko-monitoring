@@ -3,128 +3,405 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zalew Jeziorsko — Monitoring i Archiwum</title>
-    <!-- Pobranie biblioteki Chart.js z oficjalnego serwera CDN -->
-    <script src="https://jsdelivr.net"></script>
+    <title>Jeziorsko — monitoring zbiornika</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        h1, h2, h3 { color: #023e8a; }
-        .cards { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 200px; }
-        .card h3 { margin: 0 0 10px 0; font-size: 14px; color: #666; text-transform: uppercase; }
-        .card p { margin: 0; font-size: 24px; font-weight: bold; color: #03045e; }
-        .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 30px; position: relative; height: 350px; }
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #0077b6; color: white; }
-        tr:hover { background-color: #f1f5f9; }
+        :root {
+            --blue: #0077b6;
+            --dark: #023e8a;
+            --bg: #eef4f8;
+            --card: #ffffff;
+            --text: #17202a;
+            --muted: #667085;
+            --border: #dfe7ee;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: linear-gradient(135deg, #023e8a, #0077b6);
+            color: white;
+            padding: 28px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.12);
+        }
+
+        header h1 {
+            margin: 0 0 8px;
+            font-size: clamp(25px, 4vw, 38px);
+        }
+
+        header p {
+            margin: 0;
+            opacity: .9;
+        }
+
+        .status {
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 4px 14px rgba(0,0,0,.07);
+            border: 1px solid var(--border);
+        }
+
+        .card .label {
+            color: var(--muted);
+            font-size: 13px;
+            text-transform: uppercase;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .card .value {
+            color: var(--dark);
+            font-size: 27px;
+            font-weight: bold;
+        }
+
+        .card .small {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        section {
+            background: var(--card);
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 14px rgba(0,0,0,.07);
+            border: 1px solid var(--border);
+        }
+
+        h2 {
+            margin-top: 0;
+            color: var(--dark);
+        }
+
+        .chart-box {
+            height: 360px;
+            position: relative;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+        }
+
+        th, td {
+            padding: 11px 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        th:first-child, td:first-child { text-align: left; }
+
+        th {
+            background: #f2f7fa;
+            color: var(--dark);
+        }
+
+        tr:hover td { background: #f8fbfd; }
+
+        .source {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        a { color: var(--blue); }
+
+        .error {
+            color: #b42318;
+            font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            .container { padding: 10px; }
+            header, section, .card { border-radius: 10px; }
+            .chart-box { height: 300px; }
+        }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <h1>Zalew Jeziorsko — Przebieg i Monitoring</h1>
-        <p>Prywatne archiwum poziomu wody pobierane automatycznie z niezależnego pliku JSON.</p>
+<div class="container">
 
-        <div class="cards">
-            <div class="card"><h3>Aktualna pojemność</h3><p id="current-pojemnosc">Ładowanie...</p></div>
-            <div class="card"><h3>Rzędna wody</h3><p id="current-rzedna">Ładowanie...</p></div>
-            <div class="card"><h3>Rezerwa powodziowa</h3><p id="current-rezerwa">Ładowanie...</p></div>
+    <header>
+        <h1>Jeziorsko — monitoring zbiornika</h1>
+        <p>Dane publikowane przez Wody Polskie, RZGW Poznań</p>
+        <div class="status" id="status">Ładowanie danych…</div>
+    </header>
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">Rzędna piętrzenia</div>
+            <div class="value" id="rzedna">—</div>
+            <div class="small">m n.p.m.</div>
         </div>
 
-        <h2>Pojemność zbiornika (Ostatnie dni)</h2>
-        <div class="chart-container">
-            <canvas id="jeziorskoChart"></canvas>
+        <div class="card">
+            <div class="label">Szacowana objętość</div>
+            <div class="value" id="pojemnosc">—</div>
+            <div class="small">mln m³</div>
         </div>
 
-        <h2>Dane źródłowe</h2>
-        <table>
-            <thead>
+        <div class="card">
+            <div class="label">Dopływ</div>
+            <div class="value" id="doplyw">—</div>
+            <div class="small">m³/s</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Odpływ</div>
+            <div class="value" id="odplyw">—</div>
+            <div class="small">m³/s</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Rezerwa powodziowa</div>
+            <div class="value" id="rezerwa">—</div>
+            <div class="small">mln m³</div>
+        </div>
+    </div>
+
+    <section>
+        <h2>Rzędna zbiornika</h2>
+        <div class="chart-box">
+            <canvas id="levelChart"></canvas>
+        </div>
+    </section>
+
+    <section>
+        <h2>Dopływ i odpływ</h2>
+        <div class="chart-box">
+            <canvas id="flowChart"></canvas>
+        </div>
+    </section>
+
+    <section>
+        <h2>Rezerwa powodziowa</h2>
+        <div class="chart-box">
+            <canvas id="reserveChart"></canvas>
+        </div>
+    </section>
+
+    <section>
+        <h2>Historia pomiarów</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
                 <tr>
-                    <th>Data</th>
-                    <th>Rzędna [m n.p.m.]</th>
-                    <th>Pojemność [mln m³]</th>
+                    <th>Data raportu</th>
+                    <th>Rzędna [m]</th>
+                    <th>Objętość [mln m³]</th>
                     <th>Dopływ [m³/s]</th>
                     <th>Odpływ [m³/s]</th>
                     <th>Rezerwa [mln m³]</th>
                 </tr>
-            </thead>
-            <tbody id="data-table-body">
-                <tr><td colspan="6" style="text-align:center;">Pobieranie danych monitoringu...</td></tr>
-            </tbody>
-        </table>
-    </div>
+                </thead>
+                <tbody id="dataBody">
+                <tr><td colspan="6">Ładowanie…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            // Pobieranie danych z parametrem chroniącym przed cache przeglądarki
-            fetch('dane.json?nocache=' + new Date().getTime())
-                .then(response => {
-                    if (!response.ok) throw new Error("Błąd sieci");
-                    return response.json();
-                })
-                .then(rawJson => {
-                    // Zamień pojedynczy obiekt na jednoelementową listę, jeśli zaszła taka potrzeba
-                    let dataList = Array.isArray(rawJson) ? rawJson : [rawJson];
-                    
-                    if (dataList.length === 0) {
-                        document.getElementById('data-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center;">Brak danych</td></tr>';
-                        return;
-                    }
+    <section class="source">
+        <strong>Źródło:</strong>
+        <a href="https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6"
+           target="_blank" rel="noopener">
+            Wody Polskie — RZGW Poznań — Sytuacja hydrologiczna
+        </a>
+        <br><br>
+        <strong>Uwaga:</strong> raport Wód Polskich publikuje rezerwę zbiornika.
+        „Szacowana objętość” jest wyliczana jako 202,8 mln m³ minus opublikowana
+        rezerwa i nie należy jej traktować jako bezpośredniego pomiaru objętości.
+    </section>
 
-                    // 1. Uzupełnienie kafelków informacyjnych (pierwszy element to zawsze najnowsze dane)
-                    const najnowszy = dataList[0];
-                    document.getElementById('current-pojemnosc').textContent = `${parseFloat(najnowszy.pojemnosc).toFixed(2)} mln m³`;
-                    document.getElementById('current-rzedna').textContent = `${parseFloat(najnowszy.rzedna).toFixed(2)} m n.p.m.`;
-                    document.getElementById('current-rezerwa').textContent = `${parseFloat(najnowszy.rezerwa).toFixed(2)} mln m³`;
+</div>
 
-                    // 2. Szybkie generowanie wierszy tabeli hydrologicznej
-                    const tableBody = document.getElementById('data-table-body');
-                    let rowsContent = '';
-                    dataList.forEach(item => {
-                        rowsContent += `<tr>
-                            <td>${item.data}</td>
-                            <td>${parseFloat(item.rzedna).toFixed(2)}</td>
-                            <td>${parseFloat(item.pojemnosc).toFixed(2)}</td>
-                            <td>${parseFloat(item.doplyw).toFixed(2)}</td>
-                            <td>${parseFloat(item.odplyw).toFixed(2)}</td>
-                            <td>${parseFloat(item.rezerwa).toFixed(2)}</td>
-                        </tr>`;
-                    });
-                    tableBody.innerHTML = rowsContent;
+<script>
+let charts = [];
 
-                    // 3. Przygotowanie danych do wykresu liniowego (odwrócona chronologia)
-                    const chartData = [...dataList].reverse();
-                    const labels = chartData.map(item => item.data);
-                    const pojemnosci = chartData.map(item => parseFloat(item.pojemnosc));
+function fmt(value, digits = 2) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return n.toFixed(digits).replace(".", ",");
+}
 
-                    // 4. Inicjalizacja wykresu Chart.js
-                    const ctx = document.getElementById('jeziorskoChart').getContext('2d');
-                    new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Pojemność (mln m³)',
-                                data: pojemnosci,
-                                borderColor: '#0077b6',
-                                backgroundColor: 'rgba(0, 119, 182, 0.1)',
-                                borderWidth: 3,
-                                fill: true,
-                                tension: 0.2
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false
-                        }
-                    });
-                })
-                .catch(error => {
-                    console.error("Błąd krytyczny skryptu JS:", error);
-                    document.getElementById('data-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">Nie udało się załadować danych z pliku JSON</td></tr>';
-                });
-        });
-    </script>
+function destroyCharts() {
+    charts.forEach(c => c.destroy());
+    charts = [];
+}
+
+function makeChart(id, label, labels, datasets) {
+    const ctx = document.getElementById(id);
+    return new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { position: "top" }
+            },
+            scales: {
+                x: {
+                    ticks: { maxRotation: 45, minRotation: 0 }
+                }
+            }
+        }
+    });
+}
+
+async function loadData() {
+    const response = await fetch("dane.json?ts=" + Date.now(), {
+        cache: "no-store"
+    });
+
+    if (!response.ok) {
+        throw new Error("HTTP " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data) || data.length === 0) {
+        throw new Error("Brak danych w dane.json");
+    }
+
+    data.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+
+    const latest = data[0];
+
+    document.getElementById("rzedna").textContent =
+        fmt(latest.rzedna) + " m";
+
+    document.getElementById("pojemnosc").textContent =
+        fmt(latest.pojemnosc) + " mln m³";
+
+    document.getElementById("doplyw").textContent =
+        fmt(latest.doplyw) + " m³/s";
+
+    document.getElementById("odplyw").textContent =
+        fmt(latest.odplyw) + " m³/s";
+
+    document.getElementById("rezerwa").textContent =
+        fmt(latest.rezerwa) + " mln m³";
+
+    document.getElementById("status").textContent =
+        "Ostatni raport: " + latest.data +
+        " • liczba zapisanych raportów: " + data.length;
+
+    const body = document.getElementById("dataBody");
+
+    body.innerHTML = data.map(item => `
+        <tr>
+            <td>${item.data ?? "—"}</td>
+            <td>${fmt(item.rzedna)}</td>
+            <td>${fmt(item.pojemnosc)}</td>
+            <td>${fmt(item.doplyw)}</td>
+            <td>${fmt(item.odplyw)}</td>
+            <td>${fmt(item.rezerwa)}</td>
+        </tr>
+    `).join("");
+
+    // Do wykresów od najstarszego do najnowszego.
+    const chronological = [...data].reverse();
+    const labels = chronological.map(x => x.data);
+
+    destroyCharts();
+
+    charts.push(makeChart(
+        "levelChart",
+        "Rzędna",
+        labels,
+        [{
+            label: "Rzędna [m n.p.m.]",
+            data: chronological.map(x => Number(x.rzedna)),
+            tension: .25,
+            borderWidth: 3,
+            fill: false
+        }]
+    ));
+
+    charts.push(makeChart(
+        "flowChart",
+        "Przepływ",
+        labels,
+        [
+            {
+                label: "Dopływ [m³/s]",
+                data: chronological.map(x => Number(x.doplyw)),
+                tension: .25,
+                borderWidth: 2
+            },
+            {
+                label: "Odpływ [m³/s]",
+                data: chronological.map(x => Number(x.odplyw)),
+                tension: .25,
+                borderWidth: 2
+            }
+        ]
+    ));
+
+    charts.push(makeChart(
+        "reserveChart",
+        "Rezerwa",
+        labels,
+        [{
+            label: "Rezerwa [mln m³]",
+            data: chronological.map(x => Number(x.rezerwa)),
+            tension: .25,
+            borderWidth: 3,
+            fill: true
+        }]
+    ));
+}
+
+loadData().catch(error => {
+    console.error(error);
+    document.getElementById("status").innerHTML =
+        '<span class="error">Nie udało się pobrać danych.</span>';
+    document.getElementById("dataBody").innerHTML =
+        '<tr><td colspan="6" class="error">Błąd odczytu dane.json</td></tr>';
+});
+</script>
+
 </body>
 </html>

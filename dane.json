@@ -1,14 +1,1 @@
-[
-  {
-    "data": "2026-09-09 16:20:00",
-    "stacja": "Koło",
-    "rzeka": "Warta",
-    "id_stacji": "152180120",
-    "stan_wody": 195.0,
-    "rzedna": 90.13,
-    "przeplyw": 21.6,
-    "stan_alarmowy": 390.0,
-    "stan_ostrzegawczy": 340.0,
-    "pobrano": "2026-09-09T17:04:16.420411+00:00"
-  }
-]
+[]
