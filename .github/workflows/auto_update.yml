@@ -2,10 +2,7 @@ name: Aktualizacja danych Jeziorsko
 
 on:
   schedule:
-    # Wody Polskie publikuje raporty w dni robocze.
-    # Sprawdzamy stronę co godzinę.
     - cron: "5 * * * *"
-
   workflow_dispatch:
 
 permissions:
@@ -46,7 +43,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add dane.json
           git commit -m "Aktualizacja danych Jeziorsko"
           git push
