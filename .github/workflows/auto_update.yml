@@ -2,7 +2,8 @@ name: Aktualizacja danych Jeziorsko
 
 on:
   schedule:
-    # Co godzinę, 5 minut po pełnej godzinie.
+    # Wody Polskie publikuje raporty w dni robocze.
+    # Sprawdzamy stronę co godzinę.
     - cron: "5 * * * *"
 
   workflow_dispatch:
@@ -18,23 +19,23 @@ jobs:
       - name: Pobierz repozytorium
         uses: actions/checkout@v4
 
-      - name: Uruchom Pythona
+      - name: Ustaw Pythona
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Zainstaluj requests
+      - name: Zainstaluj zależności
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install requests beautifulsoup4 pypdf
 
-      - name: Pobierz dane IMGW
+      - name: Pobierz i przetwórz raport Wód Polskich
         run: python pobierz_dane.py
 
       - name: Sprawdź zmiany
         id: changes
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- dane.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -47,5 +48,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add dane.json
-          git commit -m "Aktualizacja danych IMGW"
+          git commit -m "Aktualizacja danych Jeziorsko"
           git push
