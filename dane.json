@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "data": "2026-09-10",
+    "godzina_utc": "05:00",
+    "rzedna": 118.06,
+    "zmiana_rzednej": -0.01,
+    "napelnienie": 71.37,
+    "zmiana_napelnienia": -0.29,
+    "doplyw": 14.89,
+    "odplyw": 18.25,
+    "rezerwa": 142.6,
+    "zrodlo": "Wody Polskie - RZGW Poznań",
+    "pdf": "https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6",
+    "pobrano": "2026-09-10T00:00:00+00:00"
+  }
+]

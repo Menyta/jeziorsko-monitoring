@@ -1,20 +1,32 @@
-# Jeziorsko Monitoring
+# Jeziorsko – monitoring
 
-Automatyczny monitoring zbiornika Jeziorsko na podstawie raportów PDF
-publikowanych przez Wody Polskie, RZGW Poznań.
+Automatyczny monitoring zbiornika Jeziorsko na podstawie codziennych raportów PDF publikowanych przez Wody Polskie – RZGW Poznań.
 
-## Pliki
+## Jak działa
 
-- `pobierz_dane.py` — wyszukuje najnowszy PDF i wyciąga dane Jeziorska.
-- `dane.json` — historia pobranych raportów.
-- `index.html` — strona z aktualnymi danymi i wykresami.
-- `.github/workflows/auto_update.yml` — automatyczna aktualizacja co godzinę.
+1. GitHub Actions uruchamia skrypt co godzinę.
+2. Skrypt pobiera stronę:
+   https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6
+3. Wyszukuje linki do PDF i rozpoznaje datę z nazwy/linku, np. `zbiorniki_2026-09-10.pdf`.
+4. Wybiera najnowszy raport.
+5. Pobiera PDF i odczytuje wiersz:
+   `Zb. Jeziorsko Warta`
+6. Zapisuje dane do `dane.json`.
+7. Jeśli raport jest taki sam jak poprzednio, nie tworzy zbędnego commita.
+8. GitHub Pages wyświetla dane i wykresy z `dane.json`.
+
+## Aktualny format PDF
+
+Dla Jeziorska skrypt odczytuje:
+
+- rzędna wody [m n.p.m.]
+- dobowa zmiana rzędnej [m]
+- napełnienie [mln m³]
+- dobowa zmiana napełnienia [mln m³]
+- średni dobowy dopływ [m³/s]
+- średni dobowy odpływ [m³/s]
+- aktualna rezerwa powodziowa [mln m³]
 
 ## Ważne
 
-Wody Polskie publikują bezpośrednio rezerwę zbiornika, a nie bieżącą
-objętość w mln m³. Pole `pojemnosc` jest dlatego wartością szacunkową:
-`202,8 - rezerwa`.
-
-Źródło danych:
-https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6
+Nazwa PDF nie jest wpisana na stałe. Skrypt wyszukuje ją na stronie Wód Polskich i wybiera najnowszą datę, więc zmiana nazwy z `zbiorniki_2026-09-10.pdf` na `zbiorniki_2026-09-11.pdf` nie wymaga zmiany kodu.
