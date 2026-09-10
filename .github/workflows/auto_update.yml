@@ -2,6 +2,7 @@ name: Aktualizacja danych Jeziorsko
 
 on:
   schedule:
+    # Co godzinę, 5 minut po pełnej godzinie.
     - cron: "5 * * * *"
   workflow_dispatch:
 
@@ -14,10 +15,10 @@ jobs:
 
     steps:
       - name: Pobierz repozytorium
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Ustaw Pythona
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -31,15 +32,19 @@ jobs:
 
       - name: Sprawdź zmiany
         id: changes
+        shell: bash
         run: |
           if git diff --quiet -- dane.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Brak nowych danych."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Dane zostały zmienione."
           fi
 
       - name: Zapisz dane do repozytorium
         if: steps.changes.outputs.changed == 'true'
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
