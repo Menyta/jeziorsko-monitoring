@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-Pobiera najnowszy dzienny raport PDF Wód Polskich i aktualizuje dane.json.
-
-Źródło:
-https://www.gov.pl/web/wody-polskie-poznan/sytuacja-hydrologiczna6
-
-Aktualny format raportu:
-Zb. Jeziorsko Warta
-rzedna, zmiana rzednej, napelnienie, zmiana napelnienia,
-doplyw, odplyw, rezerwa
-"""
-
 from __future__ import annotations
 
 import json
@@ -30,85 +18,119 @@ DATA_FILE = Path("dane.json")
 MAX_RECORDS = 1000
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (compatible; JeziorskoMonitoring/1.0; "
-        "+https://menyta.github.io/jeziorsko-monitoring/)"
-    )
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
 }
 
 session = requests.Session()
 session.headers.update(HEADERS)
 
 
-def get(url: str, *, timeout: int = 45, retries: int = 3) -> requests.Response:
-    last_error = None
+def get(url: str, timeout=60, retries=4):
+    last = None
     for attempt in range(1, retries + 1):
         try:
-            response = session.get(url, timeout=timeout)
-            response.raise_for_status()
-            return response
-        except requests.RequestException as exc:
-            last_error = exc
-            print(f"Próba {attempt}/{retries} nieudana: {exc}", file=sys.stderr)
+            r = session.get(url, timeout=timeout, allow_redirects=True)
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            last = e
+            print(f"HTTP próba {attempt}/{retries}: {e}", file=sys.stderr)
             if attempt < retries:
-                time.sleep(3 * attempt)
-    raise RuntimeError(f"Nie udało się pobrać: {url}") from last_error
+                time.sleep(attempt * 3)
+    raise RuntimeError(f"Nie udało się pobrać {url}: {last}")
 
 
-def extract_date_from_text(value: str) -> str | None:
-    match = re.search(r"(20\d{2}-\d{2}-\d{2})", value)
-    return match.group(1) if match else None
+def date_from(value):
+    m = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})", value)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
 
 
-def find_latest_pdf() -> tuple[str, str]:
-    html = get(SOURCE_PAGE).text
-    soup = BeautifulSoup(html, "html.parser")
+def discover_pdf():
+    r = get(SOURCE_PAGE)
+    print(f"Strona HTTP: {r.status_code}, URL końcowy: {r.url}")
+    print(f"Rozmiar HTML: {len(r.text)} znaków")
 
-    candidates: list[tuple[str, str, str]] = []
+    # 1. Najważniejsze: wyciągamy adresy PDF zarówno z HTML, jak i z tekstu.
+    soup = BeautifulSoup(r.text, "html.parser")
+    candidates = {}
 
-    for link in soup.find_all("a", href=True):
-        href = link["href"].strip()
-        text = " ".join(link.get_text(" ", strip=True).split())
-        absolute = urljoin(SOURCE_PAGE, href)
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "")
+        label = " ".join(a.get_text(" ", strip=True).split())
+        absolute = urljoin(r.url, href)
+        blob = f"{label} {href} {absolute}"
 
-        if ".pdf" not in absolute.lower():
+        d = date_from(blob)
+        if not d:
             continue
 
-        combined = f"{text} {absolute}"
-        date = extract_date_from_text(combined)
+        if "zbiorniki" not in blob.lower():
+            continue
 
-        # Preferujemy raporty "zbiorniki_YYYY-MM-DD.pdf".
-        priority = 0 if "zbiorniki" in combined.lower() else 1
+        # Normalne href, także gdy gov.pl używa ścieżki do załącznika.
+        candidates[absolute] = (d, label, absolute)
 
-        if date:
-            candidates.append((date, priority, absolute))
+    # 2. Fallback: strona może mieć nazwę załącznika w treści/JS, ale nie
+    #    wystawia jej jako prosty href kończący się .pdf.
+    for m in re.finditer(
+        r"""(?i)(?:https?:)?//[^"' <>\s]+|/[^"' <>\s]+""",
+        r.text,
+    ):
+        raw = m.group(0)
+        if "zbiorniki" not in raw.lower():
+            continue
+        d = date_from(raw)
+        if not d:
+            continue
+        absolute = urljoin(r.url, raw.replace("\\/", "/"))
+        candidates[absolute] = (d, raw, absolute)
+
+    # 3. Awaryjnie szukamy nazwy zbiorniki_YYYY-MM-DD w całym HTML.
+    #    Jeśli znajdziemy tylko nazwę, spróbujemy ją zamienić na URL załącznika
+    #    przez znalezienie najbliższego href w tym samym fragmencie HTML.
+    names = sorted(
+        set(re.findall(r"(?i)zbiorniki[_\u200b\u200c\u200d\s-]*(20\d{2}[-_]\d{2}[-_]\d{2})", r.text))
+    )
+    if names:
+        print("Nazwy raportów znalezione w HTML:", names[-10:])
 
     if not candidates:
-        raise RuntimeError("Na stronie Wód Polskich nie znaleziono żadnego pliku PDF.")
+        # Diagnostyka, żeby następna zmiana strony nie kończyła się enigmatycznym błędem.
+        snippets = []
+        for m in re.finditer(r"(?i)zbiorniki", r.text):
+            snippets.append(re.sub(r"\s+", " ", r.text[max(0, m.start()-250):m.start()+500]))
+            if len(snippets) >= 3:
+                break
+        print("Nie znaleziono bezpośredniego URL PDF.", file=sys.stderr)
+        if snippets:
+            print("Fragmenty HTML zawierające 'zbiorniki':", file=sys.stderr)
+            for s in snippets:
+                print(s, file=sys.stderr)
+        raise RuntimeError("Nie znaleziono adresu PDF raportu 'zbiorniki_YYYY-MM-DD'.")
 
-    # Najpierw data, potem preferencja pliku "zbiorniki".
-    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    ordered = sorted(candidates.values(), key=lambda x: x[0], reverse=True)
+    date, label, url = ordered[0]
+    print(f"Wybrany raport: {date}")
+    print(f"Link: {url}")
+    print(f"Etykieta: {label}")
+    return url
 
-    latest_date, _, latest_url = candidates[0]
-    print(f"Najnowszy raport: {latest_date} -> {latest_url}")
-    return latest_url, latest_date
 
-
-def pdf_text(pdf_bytes: bytes) -> str:
-    temp_pdf = Path("raport_jeziorsko.pdf")
-    temp_pdf.write_bytes(pdf_bytes)
+def extract_pdf_text(content):
+    temp = Path("_raport.pdf")
+    temp.write_bytes(content)
     try:
-        reader = PdfReader(str(temp_pdf))
+        reader = PdfReader(str(temp))
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         return " ".join(text.split())
     finally:
-        temp_pdf.unlink(missing_ok=True)
+        temp.unlink(missing_ok=True)
 
 
-def parse_report(text: str, pdf_url: str) -> dict:
-    # Przykład z aktualnego formatu PDF:
-    # Zb. Jeziorsko Warta 118,06 -0,01 71,37 -0,29 14,89 18,25 142,60
-    row_match = re.search(
+def parse(text, pdf_url):
+    row = re.search(
         r"Zb\.\s*Jeziorsko\s+Warta\s+"
         r"([-+]?\d+(?:[.,]\d+)?)\s+"
         r"([-+]?\d+(?:[.,]\d+)?)\s+"
@@ -117,138 +139,94 @@ def parse_report(text: str, pdf_url: str) -> dict:
         r"([-+]?\d+(?:[.,]\d+)?)\s+"
         r"([-+]?\d+(?:[.,]\d+)?)\s+"
         r"([-+]?\d+(?:[.,]\d+)?)",
-        text,
-        flags=re.IGNORECASE,
+        text, re.I
     )
+    if not row:
+        raise RuntimeError("PDF pobrano, ale nie znaleziono wiersza 'Zb. Jeziorsko Warta'.")
 
-    if not row_match:
-        raise RuntimeError(
-            "Nie znaleziono w PDF wiersza 'Zb. Jeziorsko Warta'. "
-            "Format raportu mógł się zmienić."
-        )
+    vals = [float(x.replace(",", ".")) for x in row.groups()]
 
-    values = [
-        float(value.replace(",", "."))
-        for value in row_match.groups()
-    ]
-
-    report_match = re.search(
-        r"z dnia\s+(20\d{2}-\d{2}-\d{2})\s+"
-        r"z godz\.\s+(\d{2}:\d{2})\s+\(UTC\)",
-        text,
-        flags=re.IGNORECASE,
+    report = re.search(
+        r"z dnia\s+(20\d{2}-\d{2}-\d{2})\s+z godz\.\s+(\d{2}:\d{2})\s+\(UTC\)",
+        text, re.I
     )
+    if not report:
+        raise RuntimeError("Nie znaleziono daty/godziny raportu w PDF.")
 
-    if not report_match:
-        raise RuntimeError(
-            "Nie znaleziono daty/godziny raportu w PDF "
-            "(oczekiwany zapis: 'z dnia YYYY-MM-DD z godz. HH:MM (UTC)')."
-        )
-
-    data, godzina_utc = report_match.groups()
-
-    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    data, godzina = report.groups()
 
     return {
         "data": data,
-        "godzina_utc": godzina_utc,
-        "rzedna": values[0],
-        "zmiana_rzednej": values[1],
-        "napelnienie": values[2],
-        "zmiana_napelnienia": values[3],
-        "doplyw": values[4],
-        "odplyw": values[5],
-        "rezerwa": values[6],
+        "godzina_utc": godzina,
+        "rzedna": vals[0],
+        "zmiana_rzednej": vals[1],
+        "napelnienie": vals[2],
+        "zmiana_napelnienia": vals[3],
+        "doplyw": vals[4],
+        "odplyw": vals[5],
+        "rezerwa": vals[6],
         "zrodlo": "Wody Polskie - RZGW Poznań",
         "pdf": pdf_url,
-        "pobrano": now,
+        "pobrano": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
     }
 
 
-def load_data() -> list[dict]:
-    if not DATA_FILE.exists():
-        return []
-
-    try:
-        value = json.loads(DATA_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Nieprawidłowy JSON w {DATA_FILE}: {exc}") from exc
-
-    if not isinstance(value, list):
-        raise RuntimeError(f"{DATA_FILE} musi zawierać tablicę JSON.")
-
-    return value
-
-
-def same_measurement(a: dict, b: dict) -> bool:
-    fields = (
-        "data",
-        "godzina_utc",
-        "rzedna",
-        "zmiana_rzednej",
-        "napelnienie",
-        "zmiana_napelnienia",
-        "doplyw",
-        "odplyw",
-        "rezerwa",
-        "pdf",
-    )
-    return all(a.get(field) == b.get(field) for field in fields)
-
-
-def save_if_changed(record: dict) -> bool:
-    data = load_data()
+def update(record):
+    if DATA_FILE.exists():
+        data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    else:
+        data = []
 
     key = (record["data"], record["godzina_utc"])
-    existing_index = next(
-        (
-            index
-            for index, item in enumerate(data)
-            if (item.get("data"), item.get("godzina_utc")) == key
-        ),
-        None,
-    )
+    old = next((x for x in data if (x.get("data"), x.get("godzina_utc")) == key), None)
 
-    if existing_index is not None and same_measurement(data[existing_index], record):
-        print("Ten raport jest już zapisany. Brak zmian w dane.json.")
+    fields = [
+        "data", "godzina_utc", "rzedna", "zmiana_rzednej",
+        "napelnienie", "zmiana_napelnienia", "doplyw",
+        "odplyw", "rezerwa", "pdf"
+    ]
+
+    if old and all(old.get(k) == record.get(k) for k in fields):
+        print("Raport już istnieje i dane się nie zmieniły.")
         return False
 
-    if existing_index is not None:
-        # Zachowujemy istniejący czas pierwszego pobrania.
-        record["pobrano"] = data[existing_index].get("pobrano", record["pobrano"])
-        data[existing_index] = record
+    if old:
+        record["pobrano"] = old.get("pobrano", record["pobrano"])
+        data[data.index(old)] = record
     else:
         data.append(record)
 
-    data.sort(key=lambda item: (item.get("data", ""), item.get("godzina_utc", "")), reverse=True)
-    data = data[:MAX_RECORDS]
-
+    data.sort(key=lambda x: (x.get("data", ""), x.get("godzina_utc", "")), reverse=True)
     DATA_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        json.dumps(data[:MAX_RECORDS], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8"
     )
-    print(f"Zapisano raport {record['data']} {record['godzina_utc']} UTC.")
+    print("Zapisano:", json.dumps(record, ensure_ascii=False))
     return True
 
 
-def main() -> int:
+def main():
     try:
-        pdf_url, _ = find_latest_pdf()
-        pdf_response = get(pdf_url)
-        text = pdf_text(pdf_response.content)
+        pdf_url = discover_pdf()
+        pdf = get(pdf_url, timeout=90)
+        print(f"PDF HTTP: {pdf.status_code}, typ: {pdf.headers.get('content-type')}, bajty: {len(pdf.content)}")
 
-        # Przydatne diagnostycznie, jeśli format PDF zmieni się w przyszłości.
-        print("Wyciągnięto tekst z PDF.")
-        record = parse_report(text, pdf_url)
+        if not pdf.content.startswith(b"%PDF"):
+            raise RuntimeError(
+                "Adres raportu nie zwrócił PDF. "
+                f"Content-Type={pdf.headers.get('content-type')}"
+            )
 
-        print(json.dumps(record, ensure_ascii=False, indent=2))
-        save_if_changed(record)
-        return 0
+        text = extract_pdf_text(pdf.content)
+        print("Tekst PDF:", text[:1500])
 
-    except Exception as exc:
-        print(f"BŁĄD: {exc}", file=sys.stderr)
-        return 1
+        record = parse(text, pdf_url)
+        update(record)
+
+    except Exception as e:
+        print(f"BŁĄD: {e}", file=sys.stderr)
+        raise
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
