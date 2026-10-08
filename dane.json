@@ -1,5 +1,19 @@
 [
   {
+    "data": "2026-10-08",
+    "godzina_utc": "05:00",
+    "rzedna": 117.8,
+    "zmiana_rzednej": -0.01,
+    "napelnienie": 64.18,
+    "zmiana_napelnienia": -0.27,
+    "doplyw": 15.13,
+    "odplyw": 18.25,
+    "rezerwa": 149.79,
+    "zrodlo": "Wody Polskie - RZGW Poznań",
+    "pdf": "https://www.gov.pl/attachment/d37ea5c5-5f56-46a4-9001-46eb22138b36",
+    "pobrano": "2026-10-08T19:14:30+00:00"
+  },
+  {
     "data": "2026-10-07",
     "godzina_utc": "05:00",
     "rzedna": 117.81,
